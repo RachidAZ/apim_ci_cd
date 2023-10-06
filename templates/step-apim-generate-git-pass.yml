@@ -1,0 +1,47 @@
+parameters:
+- name: apim_name
+  type: string
+- name: apim_rg
+  type: string  
+- name: userId
+  type: string
+  default: git  
+
+
+steps:
+-   task: AzureCLI@2
+    displayName: "Call APIM Generate Git SAS REST API"
+    name: git_pass
+    inputs:
+      azureSubscription: connection_sp
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        # Propagate pipeline Service Principal as env variables
+        export ARM_CLIENT_ID=$servicePrincipalId
+        export ARM_CLIENT_SECRET=$servicePrincipalKey
+        export ARM_TENANT_ID=$tenantId
+        # Propagate from Azure CLI context
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        
+        rg=$(echo ${{ parameters.apim_rg }})
+        apim=$(echo ${{ parameters.apim_name }})
+        user=$(echo ${{ parameters.userId }})
+        
+        url="https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$rg/providers/Microsoft.ApiManagement/service/$apim/users/$user/token?api-version=2021-08-01"
+        echo "Calling the REST API : $url "
+        pass_special_car="no"
+
+
+          expiry=$(date +"%Y-%m-%dT%H:%M" --date="tomorrow")
+          azrest_result=$(az rest --method post --uri $url --body "{   \"properties\": {    \"keyType\": \"primary\",     \"expiry\": '$expiry'   } }" --header "Accept=application/json" )
+          git_token=$(echo $azrest_result | jq .'value' |  tr -d '"'  )
+
+          if [[ $git_token == *"/"* ]]; then echo "-->Generated git password contains special character" ; pass_special_car="yes" ; else echo "-->Git password generated." ; pass_special_car="no" ; fi
+          if [[ $pass_special_car == "yes" ]]; then git_token=$(echo $git_token | sed -r 's/[/]+/%2F/g' ) ; fi
+
+        echo "##vso[task.setvariable variable=git_token;isOutput=true]$git_token"
+
+
+
+       

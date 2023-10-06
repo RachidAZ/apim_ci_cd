@@ -1,0 +1,66 @@
+parameters:
+- name: workdir
+  type: string
+  default: "$(System.DefaultWorkingDirectory)"
+- name: remote_git_url
+  type: string
+- name: remote_git_user
+  type: string
+- name: remote_git_pass
+  type: string
+
+
+steps:
+
+
+ -  script: |
+
+      echo "Cloning remote QA repo for APIM config validation:"
+      mkdir apim_qa_clone && cd apim_qa_clone
+      git_url='https://${{ parameters.remote_git_user }}:${{ parameters.remote_git_pass }}@${{ parameters.remote_git_url }}'
+      echo $git_url
+      echo "Clonning $git_url"
+      git clone $git_url
+      git status
+      echo 'ls "$(ls . )/api-management/"'
+      ls "$(ls . )/api-management/"
+    displayName: "Clone APIM QA Repo"
+
+
+ -  script: |
+
+      echo "--> Current repo 'api-management' folder content:"
+      ls api-management/
+      echo "--> APIM QA repo 'api-management' folder content:"
+      ls apim_qa_clone/${{ parameters.remote_git_url }}/api-management/
+
+      echo "--copy content from current repo to APIM QA (qa_validate branch)"
+      cd apim_qa_clone/${{ parameters.remote_git_url }}/api-management/
+      git config --global user.email "rachid.devops@,company.com"
+      git config --global user.name "Rachid DevOps"
+      git fetch
+      git branch -f qa_validate origin/qa_validate
+      git checkout qa_validate
+      git fetch
+
+      rm -r $BUILD_SOURCESDIRECTORY/apim_qa_clone/${{ parameters.remote_git_url }}/api-management/*
+      #ls $BUILD_SOURCESDIRECTORY/apim_qa_clone/${{ parameters.remote_git_url }}/
+      cp -R $BUILD_SOURCESDIRECTORY/api-management/ $BUILD_SOURCESDIRECTORY/apim_qa_clone/${{ parameters.remote_git_url }}/
+      #cd apim_qa_clone/${{ parameters.remote_git_url }}/api-management/
+      #ls $BUILD_SOURCESDIRECTORY/apim_qa_clone/${{ parameters.remote_git_url }}/
+      #echo "--pwd : $(pwd) "
+      #git status
+      git add .
+      git commit -m "push apim config from CI pipeline"
+      #git status
+      echo "-- Push the current config to remote/qa_validate "
+      git push -f --set-upstream origin qa_validate
+      #git status
+      #git branch -l -a
+      #echo "show changes: \n"
+      #git show
+    displayName: "Push current config to APIM QA git repo for validation"
+  
+
+ 
+   

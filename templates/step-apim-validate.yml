@@ -1,0 +1,44 @@
+parameters:
+- name: remote_git_url
+  type: string
+- name: rg_apim_validation
+  type: string  
+  
+steps:
+-   task: AzureCLI@2
+    displayName: "Call APIM Validate REST API"
+    inputs:
+      azureSubscription: connection_sp
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        # Propagate pipeline Service Principal as env variables
+        export ARM_CLIENT_ID=$servicePrincipalId
+        export ARM_CLIENT_SECRET=$servicePrincipalKey
+        export ARM_TENANT_ID=$tenantId
+        # Propagate from Azure CLI context
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        
+        apim_name=$(echo ${{ parameters.remote_git_url }} | cut -d "." -f 1)
+        rg=$(echo ${{ parameters.rg_apim_validation }})
+        
+        url="https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$rg/providers/Microsoft.ApiManagement/service/$apim_name/tenant/configuration/validate?api-version=2021-08-01"
+        
+        echo "Calling the REST API : $url "
+        id_request=$(az rest --method post --uri $url --body "{   \"properties\": {     \"branch\": \"qa_validate\"   } }" --header "Accept=application/json" | jq '.id' | tr -d '"')
+        request_status=""
+        echo "Calling the REST API : https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$rg/providers/Microsoft.ApiManagement/service/$apim_name/tenant/operationResults/$id_request?api-version=2021-08-01 "
+        
+        while : ; do
+          api_response=$(az rest --method get --uri https://management.azure.com/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$rg/providers/Microsoft.ApiManagement/service/$apim_name/tenant/operationResults/$id_request\?api-version\=2021-08-01 || exit_status=$?; request_status="Failed")
+          
+          if [[ $request_status == Failed ]]; then echo "The REST API call has failed" ; break ; fi
+          validation_status=$(echo $api_response | jq -r .status)
+          echo "Status: $validation_status"
+          if [[ $validation_status == InProgress ]]; then sleep 2 ; fi
+          if [[ $validation_status == Succeeded ]]; then break ; fi
+        
+        done
+        if [[ $validation_status != Succeeded ]]; then exit $exit_status ; fi
+      addSpnToEnvironment: true
+      useGlobalConfig: true

@@ -1,0 +1,129 @@
+
+---
+name: "APIM CI"
+
+parameters:
+- name: apim_name #apim (QA instance) that will be used for configuration validation
+  type: string
+  default: "apim-myapim-qa"
+- name: apim_rg
+  type: string
+  default: "rg-myapim-qa"
+- name: remote_git_url
+  type: string
+  default: "apim-myapim-qa.scm.azure-api.net"
+  
+trigger:
+  - master
+  - release*
+
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  major: 1
+  minor: 0
+  patch: $[counter(variables['minor'], 1)]
+
+
+stages:
+  - stage: PR_Validation
+    dependsOn: []
+    displayName: Validate Pull Request
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    jobs:
+    - job: build
+      displayName: Check PR
+      steps:
+        - checkout: self
+          persistCredentials: true
+
+        - task: CopyFiles@2
+          inputs:
+            sourceFolder: $(Build.SourcesDirectory)
+            contents: api-management/**
+            targetFolder: $(Build.ArtifactStagingDirectory)
+            CleanTargetFolder : true
+            overWrite: true
+            flattenFolders: false
+            preserveTimestamp: false
+        
+        # generate apim git passowrd
+        - template: templates/step-apim-generate-git-pass.yml
+          parameters:
+              apim_name: ${{parameters.apim_name}}
+              apim_rg  : ${{parameters.apim_rg}}
+       
+      
+         
+        # push PR code to apim QA repo for validation (branch qa_validate)
+        - template: templates/step-sync-apim-git.yml
+          parameters:
+              workdir: "$(System.DefaultWorkingDirectory)/api-management"
+              remote_git_url  : ${{parameters.remote_git_url}}
+              remote_git_user : "apim"
+              remote_git_pass : $(git_pass.git_token)
+
+
+        # validate the new APIM code change
+        - template: templates/step-apim-validate.yml
+          parameters:
+              remote_git_url     : ${{parameters.remote_git_url}}
+              rg_apim_validation : ${{parameters.apim_rg}}
+        
+        
+
+
+  - stage: Upload
+    displayName: Upload APIM config to Storage
+    condition: ne(variables['Build.Reason'], 'PullRequest')
+    jobs:
+      - job: Artifact
+        displayName: Release artifact
+        variables:
+            artifact_version: "$(major).$(minor).$(patch)"
+
+        steps:
+          
+          - checkout: self
+            persistCredentials: true
+            
+          # generate apim git passowrd
+          - template: templates/step-apim-generate-git-pass.yml
+            parameters:
+                apim_name: ${{parameters.apim_name}}
+                apim_rg: ${{parameters.apim_rg}}
+
+          # push PR code to apim QA repo for validation (branch qa_validate)
+          - template: templates/step-sync-apim-git.yml
+            parameters:
+              workdir: "$(System.DefaultWorkingDirectory)/api-management"
+              remote_git_url: $(remote-git-url)
+              remote_git_user : "apim"
+              remote_git_pass : $(git_pass.git_token)
+
+          # validate the new APIM code change
+          - template: templates/step-apim-validate.yml
+            parameters:
+              remote_git_url: $(remote-git-url)
+              rg_apim_validation : $(rg-apim-validation)
+
+          - template: templates/copy-files.yml
+            parameters:
+              content: "api-management/**"
+
+          # upload apim artifact to azure artifact repository
+          - template: templates/universal-artifact-upload.yml
+            parameters:
+              version: "${{ variables.artifact_version }}"
+              packagename: "$(Build.Repository.Name)"    
+
+           # add artifact version as a git tag   
+          - script: |
+              echo "add the version tag"
+              git tag ${{ variables.artifact_version }}
+              git push --tags
+            displayName: "Add version tag"
+
+  

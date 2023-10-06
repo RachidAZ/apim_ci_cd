@@ -1,0 +1,38 @@
+parameters:
+- name: remote_git_url
+  type: string
+- name: remote_git_user
+  type: string
+- name: remote_git_pass
+  type: string
+
+
+steps:
+
+
+ -  script: |
+      set -e
+
+      echo "-->Cloning remote target repo:"
+      echo "-->print pwd and ls"
+      pwd
+      ls
+      git init
+      git config credential.helper 'cache'
+
+      mkdir apim_clone && cd apim_clone
+      git_url='https://${{ parameters.remote_git_user }}:${{ parameters.remote_git_pass }}@${{ parameters.remote_git_url }}'
+      echo $git_url
+      echo "-->Clonning $git_url"
+      git clone $git_url
+      git status
+      echo '-->ls "$(ls . )/api-management/"'
+      ls "$(ls . )/api-management/"
+
+    displayName: "Clone APIM target Repo"
+
+
+
+
+ 
+   
